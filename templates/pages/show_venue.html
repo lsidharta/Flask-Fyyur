@@ -61,13 +61,12 @@
 			{% endfor %}
 		{% endif %}
 	</div>
-	
 </section>
 <section>
 	<h2 class="monospace">{{ venue.past_shows_count }} Past {% if venue.past_shows_count == 1 %}Show{% else %}Shows{% endif %}</h2>
 	<div class="row">
 		{% if venue.past_shows_count > 0 %}
-			{%for show in venue.past_shows %}
+			{% for show in venue.past_shows %}
 			<div class="col-sm-4">
 				<div class="tile tile-show">
 					<img src="{{ show.artist_image_link }}" alt="Show Artist Image" />
@@ -84,6 +83,9 @@
 <form class="form-group">
 	<input type="submit" value="Edit" class="btn btn-primary btn-lg" formmethod="GET" formaction="{{ url_for('edit_venue', venue_id=venue.id) }}">
 	<input type="submit" value="Delete" class="btn btn-primary btn-lg" formmethod="POST" formaction="{{ url_for('delete_venue', venue_id=venue.id) }}">
-</form>
+</form>	
+</div>
+
+
 {% endblock %}
 
