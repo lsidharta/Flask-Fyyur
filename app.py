@@ -29,9 +29,6 @@ db.init_app(app)
 # TODO: connect to a local postgresql database
 migrate = Migrate(app, db)
 
-with app.app_context():
-    app.debug = True
-    db.create_all()
 #----------------------------------------------------------------------------#
 # Filters.
 #----------------------------------------------------------------------------#
@@ -63,116 +60,116 @@ def index():
 
 @app.route('/venues')
 def venues():
+  error = False
   # TODO: replace with real venues data.
   current_time = datetime.now()
   # Get the disctinct cities and states
-  distinct_city_state = db.session.query(Venue.id, Venue.city, Venue.state).distinct(Venue.city, Venue.state).all()
-  # Get the 10 latest venues
-  venues_shows = db.session.query(Venue, Show).join(Venue.shows_venue, isouter=True).order_by(Venue.id.desc()).limit(10)
-  venues_shows = venues_shows[::-1] # Reverse the order
-  db.session.close()
   data = []
-  
-  for cs in distinct_city_state:
-    city_dict = {}
-    city_dict['city'] = cs.city
-    city_dict['state'] = cs.state
-    city_dict['venues'] = []
-    
-    venues_dict = {}
-    for vs in venues_shows:
-      if vs.Venue.city == cs.city:
-        if vs.Venue.id in venues_dict.keys():
-          if vs.Show.start_time > current_time:
-            venues_dict[vs.Venue.id]['num_upcoming_shows'] += 1
-        else:
-          venue_dict = {}
-          venue_dict['id'] = vs.Venue.id
-          venue_dict['name'] = vs.Venue.name
-          if vs.Show and vs.Show.start_time > current_time:
-            venue_dict['num_upcoming_shows'] = 1
-          else:
-            venue_dict['num_upcoming_shows'] = 0
-          venues_dict[vs.Venue.id] = venue_dict
-      city_dict['venues'] = list(venues_dict.values())
-    data.append(city_dict)
+  try:
+    distinct_city_state = db.session.query(Venue).\
+      distinct(Venue.city, Venue.state).\
+      order_by(Venue.city.asc(), Venue.state.asc()).all()
+    venues = db.session.query(Venue).all()
+    for cs in distinct_city_state:
+      data.append({
+        'city': cs.city,
+        'state': cs.state,
+        'venues': [({
+            'id': venue.id,
+            'name': venue.name,
+            'num_upcoming_shows': len([show for show in venue.shows \
+                if show.start_time >= current_time]),
+            'num_past_shows': len([show for show in venue.shows \
+                if show.start_time < current_time])
+          }) for venue in venues \
+            if venue.city == cs.city and venue.state == cs.state]
+      }) 
+  except Exception as e:
+    error = True
+    print(e)
+  finally:
+    db.session.close()
   return render_template('pages/venues.html', areas=data)
 
 @app.route('/venues/search', methods=['POST'])
 def search_venues():
-  # TODO: implement search on artists with partial string search. Ensure it is case-insensitive.
-  # seach for Hop should return "The Musical Hop".
-  # search for "Music" should return "The Musical Hop" and "Park Square Live Music & Coffee"
-
   # Get the search term from the form
-  search = request.form.get('search_term', '')
-
-  venues = Venue.query.filter(Venue.name.ilike("%" + search + "%")).all()
+  venues = []
   data = []
-  for venue in venues:
-    data.append({
-      'id': venue.id,
-      'name': venue.name,
-      'num_upcoming_shows': 0
-    })
-  response = {
-    'count': len(venues),
-    'data': data
-  }
-  return render_template('pages/search_venues.html', results=response, search_term=request.form.get('search_term', ''))
+  current_time = datetime.now()
+  search = request.form.get('search_term', '')
+  try:
+    venues = Venue.query.filter(Venue.name.ilike("%" + search + "%")).all()
+    for venue in venues:
+      data.append({
+        'id': venue.id,
+        'name': venue.name,
+        'num_upcoming_shows': len([show for show in venue.shows \
+                  if show.start_time >= current_time]),
+        'num_past_shows': len([show for show in venue.shows \
+                  if show.start_time < current_time])                
+      })
+  except Exception as e:
+    error = True
+    print(e)
+  finally:
+    response = {
+      'count': len(venues),
+      'data': data
+    }
+  return render_template('pages/search_venues.html', 
+    results=response, 
+    search_term=request.form.get('search_term', ''))
 
 @app.route('/venues/<int:venue_id>')
 def show_venue(venue_id):
   # shows the venue page with the given venue_id
-  # TODO: replace with real venue data from the venues table, using venue_id
+  # Find the unique venue with id = venue_id
+  # If there is any shows in the venue, compose the shows information
+  # For each show, create a dictionary  
   error = False
   current_time = datetime.now()
   data = {}
-  vs_dict = {}
-  vs_dict['past_shows'] = []
-  vs_dict['upcoming_shows'] = []
-  vs_dict['upcoming_shows_count'] = 0
-  vs_dict['past_shows_count'] = 0    
+  q = None
   try:
-    # Find the unique venue with id = venue_id
-    vs = Venue.query.filter_by(id=venue_id).one()
-    # If there is any shows in the venue, compose the shows information
-    if len(vs.shows_venue) > 0:
-      # For each show, create a dictionary
-      for show in vs.shows_venue:
-        show_dict = {}
-        show_dict['artist_id'] = show.artist.id
-        show_dict['artist_name'] = show.artist.name
-        show_dict['artist_image_link'] = show.artist.image_link
-        show_dict['start_time'] = show.start_time
-        # For the past shows
-        if show.start_time < current_time:
-          vs_dict['past_shows'].append(show_dict)
-          vs_dict['past_shows_count'] += 1
-        # For the upcoming shows
-        else:
-          vs_dict['upcoming_shows'].append(show_dict)
-          vs_dict['upcoming_shows_count'] += 1
-    vs_dict['id'] = vs.id
-    vs_dict['name'] = vs.name
-    vs_dict['genres'] = vs.genres
-    vs_dict['address'] = vs.address
-    vs_dict['city'] = vs.city
-    vs_dict['state'] = vs.state
-    vs_dict['phone'] = vs.phone
-    vs_dict['website_link'] = vs.website_link
-    vs_dict['facebook_link'] = vs.facebook_link
-    vs_dict['image_link'] = vs.image_link
-    vs_dict['seeking_talent'] = vs.seeking_talent
-    vs_dict['seeking_description'] = vs.seeking_description
+    q = db.session.query(Venue).filter(Venue.id == venue_id).one_or_404()
+    data = {
+      'id' : q.id,
+      'name' : q.name,
+      'genres' : q.genres,
+      'address' : q.address,
+      'city' : q.city,
+      'state' : q.state,
+      'phone' : q.phone,
+      'website_link' : q.website_link,
+      'facebook_link' : q.facebook_link,
+      'image_link' : q.image_link,
+      'seeking_talent' : q.seeking_talent,
+      'seeking_description' : q.seeking_description,
+      'upcoming_shows': [],
+      'past_shows' : [],
+      'upcoming_shows_count': 0,
+      'past_shows_count': 0,
+      'shows': q.shows
+      }
+
+    for show in q.shows:
+      artist_dict = {
+        'artist_id': show.artist_id,
+        'artist_name': show.artist.name,
+        'artist_image_link': show.artist.image_link,
+        'start_time': show.start_time
+      }
+      [data['past_shows'].append(artist_dict) if show.start_time < current_time \
+        else data['upcoming_shows'].append(artist_dict) ]
+    data['upcoming_shows_count'] = len(data['upcoming_shows'])
+    data['past_shows_count'] = len(data['past_shows'])
+    
   except Exception as e:
     error = True
     print (e)
-    db.session.rollback()
   finally:
     db.session.close()
-  data = vs_dict
-  
   return render_template('pages/show_venue.html', venue=data)
 
 #  Create Venue
@@ -210,8 +207,7 @@ def create_venue_submission():
         seeking_talent = form.seeking_talent.data,
         seeking_description = form.seeking_description.data
       )
-      db.session.add(venue)
-      db.session.commit()
+      venue.create()
       flash('Venue ' + v_name + ' was successfully listed!')
     except Exception as e:
       print(e)
@@ -245,8 +241,7 @@ def delete_venue(venue_id):
   venue = Venue.query.get_or_404(venue_id)
   venue_name = venue.name
   try:
-    db.session.delete(venue)
-    db.session.commit()
+    venue.delete()
   except Exception as e:
     print(e)
     error = True
@@ -265,16 +260,23 @@ def delete_venue(venue_id):
 def artists():
   # TODO: replace with real data returned from querying the database
   # Query the last 10 artist in the ascending order
-  artists = Artist.query.order_by(Artist.id.desc()).limit(10)
-  artists = artists[::-1]
-  db.session.close()
-  data = []
-  for artist in artists:
-    artist_dict = {}
-    artist_dict['id'] = artist.id
-    artist_dict['name'] = artist.name
-    data.append(artist_dict)
-  
+  current_time = datetime.now()
+  data = []  
+  try:
+    artists = Artist.query.order_by(Artist.id.desc()).limit(10)
+    [data.append({
+        'id': artist.id,
+        'name': artist.name,
+        'num_upcoming_shows': len([show for show in artist.shows \
+          if show.start_time >= current_time]),
+        'num_past_shows': len([show for show in artist.shows \
+          if show.start_time < current_time])
+      }) for artist in artists[::-1]]
+  except Exception as e:
+    error = True
+    print(e)
+  finally:
+    db.session.close()
   return render_template('pages/artists.html', artists=data)
 
 @app.route('/artists/search', methods=['POST'])
@@ -282,20 +284,31 @@ def search_artists():
   # TODO: implement search on artists with partial string search. Ensure it is case-insensitive.
   # seach for "A" should return "Guns N Petals", "Matt Quevado", and "The Wild Sax Band".
   # search for "band" should return "The Wild Sax Band".
-  search = request.form.get('search_term', '')
-  artists = Artist.query.filter(Artist.name.ilike("%" + search + "%")).all()
   data = []
-  for artist in artists:
-    data.append({
-      'id': artist.id,
-      'name': artist.name,
-      'num_upcoming_shows': 0
-    })
-  response = {
-    'count': len(artists),
-    'data': data
-  }
-  return render_template('pages/search_artists.html', results=response, search_term=request.form.get('search_term', ''))
+  artists = []
+  current_time = datetime.now()
+  search = request.form.get('search_term', '')
+  try:
+    artists = Artist.query.filter(Artist.name.ilike("%" + search + "%")).all()
+    for artist in artists:
+      data.append({
+        'id': artist.id,
+        'name': artist.name,
+        'num_upcoming_shows': len([show for show in artist.shows \
+                  if show.start_time >= current_time]),
+        'num_past_shows': len([show for show in artist.shows \
+                  if show.start_time < current_time])
+      })
+  except Exception as e:
+    error = True
+    print(e)
+  finally:
+    response = {
+      'count': len(artists),
+      'data': data
+    }
+  return render_template('pages/search_artists.html', results=response, \
+    search_term=request.form.get('search_term', ''))
 
 @app.route('/artists/<int:artist_id>')
 def show_artist(artist_id):
@@ -304,52 +317,43 @@ def show_artist(artist_id):
   error = False
   current_time = datetime.now()
   data = {}
-  vs_dict = {}
-  vs_dict['past_shows'] = []
-  vs_dict['upcoming_shows'] = []
-  vs_dict['upcoming_shows_count'] = 0
-  vs_dict['past_shows_count'] = 0
-  #shows = db.session.query(Show).filter_by(artist_id=artist_id)
   try:
-    #shows = db.session.query(Show).filter_by(artist_id=artist_id)
-    vs = Artist.query.filter_by(id=artist_id).one()
-    #if shows.count() == 0:
-    #  vs = db.session.query(Artist).filter_by(id=artist_id).one()
-    if len(vs.shows_artist) > 0:
-      #vs = db.session.query(Artist).filter_by(id=artist_id).join(Artist.shows_artist, isouter=False).one()
-      for show in vs.shows_artist:
-        show_dict = {}
-        show_dict['venue_id'] = show.venue.id #venue_id
-        #venue = db.session.query(Venue).filter_by(id = sv.venue_id).one()
-        show_dict['venue_name'] = show.venue.name
-        show_dict['venue_image_link'] = show.venue.image_link
-        show_dict['start_time'] = show.start_time
-        if show.start_time < current_time:
-          vs_dict['past_shows'].append(show_dict)
-          vs_dict['past_shows_count'] += 1
-        else:
-          vs_dict['upcoming_shows'].append(show_dict)
-          vs_dict['upcoming_shows_count'] += 1
-    vs_dict['id'] = vs.id
-    vs_dict['name'] = vs.name
-    vs_dict['genres'] = vs.genres
-    vs_dict['address'] = vs.address
-    vs_dict['city'] = vs.city
-    vs_dict['state'] = vs.state
-    vs_dict['phone'] = vs.phone
-    vs_dict['website_link'] = vs.website_link
-    vs_dict['facebook_link'] = vs.facebook_link
-    vs_dict['image_link'] = vs.image_link
-    vs_dict['seeking_venue'] = vs.seeking_venue
-    vs_dict['seeking_description'] = vs.seeking_description
+    q = db.session.query(Artist).filter(Artist.id == artist_id).one_or_404()
+    data = {
+      'id' : q.id,
+      'name' : q.name,
+      'genres' : q.genres,
+      'address' : q.address,
+      'city' : q.city,
+      'state' : q.state,
+      'phone' : q.phone,
+      'website_link' : q.website_link,
+      'facebook_link' : q.facebook_link,
+      'image_link' : q.image_link,
+      'seeking_venue' : q.seeking_venue,
+      'seeking_description' : q.seeking_description,
+      'upcoming_shows': [],
+      'past_shows' : [],
+      'upcoming_shows_count': 0,
+      'past_shows_count': 0
+      }
+    
+    for show in q.shows:
+      venue_dict = {
+        'venue_id': show.venue_id,
+        'venue_name': show.venue.name,
+        'venue_image_link': show.venue.image_link,
+        'start_time': show.start_time
+      }
+      [data['past_shows'].append(venue_dict) if show.start_time < current_time \
+        else data['upcoming_shows'].append(venue_dict) ]
+    data['upcoming_shows_count'] = len(data['upcoming_shows'])
+    data['past_shows_count'] = len(data['past_shows'])
   except Exception as e:
     error = True
     print(e)
-    db.session.rollback()
   finally:
     db.session.close()
-  data = vs_dict
-
   return render_template('pages/show_artist.html', artist=data)
 
 #  Update
@@ -365,7 +369,7 @@ def edit_artist(artist_id):
 def edit_artist_submission(artist_id):
   # TODO: take values from the form submitted, and update existing
   # artist record with ID <artist_id> using the new attributes
-  form = ArtistForm(request.form)
+  form = ArtistForm(request.form, meta={'csrf': False})
   if form.validate():
     try:
       artist = Artist.query.get(artist_id)
@@ -406,7 +410,7 @@ def edit_venue(venue_id):
 def edit_venue_submission(venue_id):
   # TODO: take values from the form submitted, and update existing
   # venue record with ID <venue_id> using the new attributes
-  form = VenueForm(request.form)
+  form = VenueForm(request.form, meta={'csrf': False})
   if form.validate():
     try:
       venue = Venue.query.get(venue_id)
@@ -469,8 +473,7 @@ def create_artist_submission():
         seeking_description = form.seeking_description.data
       )
       # Insert the new artist to the database
-      db.session.add(artist)
-      db.session.commit()
+      artist.create()
       flash('Artist ' + a_name + ' was successfully listed!')
     except Exception as e:
       print(e)
@@ -507,16 +510,14 @@ def shows():
   # TODO: replace with real venues data.
   data = []
   shows = Show.query.order_by(Show.start_time).all()
-  for sh in shows:
-    sh_dict = {}
-    sh_dict['venue_id'] = sh.venue.id
-    sh_dict['venue_name'] = sh.venue.name
-    sh_dict['start_time'] = sh.start_time
-    sh_dict['artist_id'] = sh.artist.id
-    sh_dict['artist_name'] = sh.artist.name
-    sh_dict['artist_image_link'] = sh.artist.image_link
-    data.append(sh_dict)
-
+  [data.append({
+      'venue_id': sh.venue.id,
+      'venue_name': sh.venue.name,
+      'start_time': sh.start_time,
+      'artist_id': sh.artist.id,
+      'artist_name': sh.artist.name,
+      'artist_image_link': sh.artist.image_link
+    }) for sh in shows]
   return render_template('pages/shows.html', shows=data)
 
 #  Create Show
@@ -531,7 +532,7 @@ def create_shows():
 @app.route('/shows/create', methods=['POST'])
 def create_show_submission():
   # called to create new shows in the db, upon submitting new show listing form
-  form = ShowForm(request.form)
+  form = ShowForm(request.form, meta={'csrf': False})
   error = False
   # Gather show information from the form
   artistId = form.artist_id.data
@@ -557,12 +558,10 @@ def create_show_submission():
         flash('The artist is busy on that day! Please find different date.')
       else:
         # If the artist is available, insert the show in the database
-        db.session.add(show)
-        db.session.commit()
+        show.create()
         flash('Show was successfully listed!')
     else:
-      db.session.add(show)
-      db.session.commit()
+      show.create()
       flash('Show was successfully listed!')
   except Exception as e:
     print(e)
